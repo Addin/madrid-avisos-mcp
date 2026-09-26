@@ -1,4 +1,4 @@
-# Traspaso — madrid-avisos-mcp
+# Traspaso — madrid-avisos-mcp ([github.com/Naroh091/madrid-avisos-mcp](https://github.com/Naroh091/madrid-avisos-mcp))
 
 Documento de handoff para que otro agente/persona continúe. Actualizado: 2026-09-25.
 
