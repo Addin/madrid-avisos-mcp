@@ -12,7 +12,7 @@ metadata:
 # Avisos Madrid — crear incidencias desde una foto
 
 Servidor MCP `madrid-avisos` (10 tools, prefijo `mcp__madrid_avisos__`). Actúas como el
-usuario DAVID (el token del servidor es su cuenta): todo aviso que crees es REAL y lo
+dueño del token configurado en el servidor: todo aviso que crees es REAL y lo
 revisa personal municipal. **Solo incidencias genuinas. Nada de pruebas.**
 
 ## Límites de tu mandato

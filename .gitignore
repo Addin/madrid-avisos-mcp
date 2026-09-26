@@ -4,3 +4,11 @@ dist/
 *.log
 .tokens.json
 *.tokens.json
+__pycache__/
+*.pyc
+.DS_Store
+# Fotos de usuarios (no versionar incidencias)
+*.jpg
+*.jpeg
+*.png
+*.heic

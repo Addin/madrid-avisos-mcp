@@ -1,15 +1,21 @@
 {
   "name": "madrid-avisos-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Servidor MCP y CLI para la API de Avisos del Ayuntamiento de Madrid (AVSICAPI)",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Naroh091/madrid-avisos-mcp.git"
+  },
   "bin": {
     "madrid-avisos-mcp": "dist/server.js",
     "madrid-avisos-mcp-http": "dist/http.js",
     "madrid-avisos": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "scripts",
+    "skill"
   ],
   "scripts": {
     "build": "tsc",
