@@ -111,6 +111,9 @@ dirección y si la foto quedó adjunta (`media_url`).
   No lo pases nunca; el servidor lo resuelve solo.
 - Cambiar cualquier campo entre preview y envío: el `preview_token` deja de coincidir y
   hay que repetir el preview.
+- Filtrar respuestas de ubicación vacías (como `calificador`): el servidor las exige
+  presentes. Pasa las de `resolve_location` tal cual; además el servidor auto-rellena
+  los huecos.
 - `get_aviso` NO acepta el `service_request_id` visible; necesita el id interno.
 - Perder el EXIF al redimensionar (p.ej. captura de pantalla de la foto): sin GPS no hay
   aviso automático; pide ubicación.

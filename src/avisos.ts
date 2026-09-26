@@ -126,6 +126,30 @@ export function parseAddressResponse(res: unknown): ResolvedAddress | null {
 /** Caché del device id por canal (jurisdictions rara vez cambia). */
 const deviceCache = new Map<string, string>();
 
+/** Intenta resolver dirección; devuelve null en vez de lanzar (no bloquea el dry-run). */
+async function resolveAddressQuiet(
+  client: AvisosClient,
+  lat: number,
+  lng: number,
+): Promise<ResolvedAddress | null> {
+  try {
+    return await resolveAddress(client, lat, lng);
+  } catch {
+    return null;
+  }
+}
+
+/** Fusiona respuestas: las aportadas mandan por id; las auto-resueltas rellenan huecos. */
+function mergeAnswers(
+  auto: Array<{ question: string; value: string }> | undefined,
+  provided: Array<{ question: string; value: string | string[] }> | undefined,
+): Array<{ question: string; value: string | string[] }> | undefined {
+  if (!auto?.length) return provided;
+  if (!provided?.length) return auto;
+  const seen = new Set(provided.map((a) => a.question));
+  return [...provided, ...auto.filter((a) => !seen.has(a.question))];
+}
+
 /**
  * Resuelve el device_type (id de origin-device) para un canal buscando en
  * jurisdiction.origin_devices (GET jurisdictions). Prefiere coincidencia exacta
@@ -223,12 +247,20 @@ export interface CreateResult {
 /**
  * Crea un aviso. Por seguridad, por defecto es DRY-RUN: construye el payload y NO lo envía.
  * Solo con input.confirm === true realiza el POST real (crea un aviso real en el Ayuntamiento).
+ * Si hay lat/lng, auto-completa address_string y las respuestas de ubicación que falten
+ * (las aportadas mandan): el servidor rechaza preguntas ausentes como el calificador.
  */
 export async function createAviso(client: AvisosClient, input: CreateAvisoInput): Promise<CreateResult> {
+  let { address_string, location_additional_data } = input;
+  if (input.lat !== undefined && input.lng !== undefined) {
+    const auto = await resolveAddressQuiet(client, input.lat, input.lng);
+    address_string ??= auto?.formatted_address;
+    location_additional_data = mergeAnswers(auto?.answers, location_additional_data);
+  }
   // device_type dinámico (mejor esfuerzo): si falla, el valor por defecto de buildCreatePayload.
   const device_type =
     input.device_type ?? (await resolveDeviceType(client).catch(() => DEFAULT_DEVICE_TYPE));
-  const payload = buildCreatePayload({ ...input, device_type });
+  const payload = buildCreatePayload({ ...input, address_string, location_additional_data, device_type });
   const endpoint = "requests";
   if (!input.confirm) {
     return { dry_run: true, payload, endpoint };
@@ -427,7 +459,7 @@ export async function createAvisoFromPhoto(
   // Dirección + respuestas de ubicación auto-resueltas (el humano las ve en el preview).
   const autoAddress = parseAddressResponse(resolved_location.location_additional_data);
   const address_string = input.address_string ?? autoAddress?.formatted_address;
-  const location_additional_data = input.location_additional_data ?? autoAddress?.answers;
+  const location_additional_data = mergeAnswers(autoAddress?.answers, input.location_additional_data);
   const address_auto_resolved = !input.address_string && !!autoAddress;
   // device_type dinámico (mejor esfuerzo): id del canal android, no el literal "android".
   const device_type =
