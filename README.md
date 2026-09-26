@@ -50,7 +50,7 @@ Todo corre en tu máquina y el token no sale de ella: cada aviso se crea como tu
 
 ## Configuración
 
-Variables de entorno (ver `.env.example`):
+Variables de entorno:
 
 - `MADRID_AVISOS_TOKEN` — **bearer token de un usuario registrado**. Necesario para
   crear/listar/consultar avisos (Madrid tiene `only_registered_users: true`).
@@ -107,7 +107,7 @@ Solo JPEG trae EXIF legible; el límite del body HTTP es de 32 MB.
 ## Uso como MCP (Claude Desktop / Claude Code)
 
 Ya cubierto en el [Inicio rápido](#inicio-rápido-cada-ciudadano-en-su-local). Con `MADRID_AVISOS_REFRESH_TOKEN`
-y `MADRID_AVISOS_TOKEN_STORE` (ver `.env.example`) el refresco es automático.
+Con `MADRID_AVISOS_REFRESH_TOKEN` y `MADRID_AVISOS_TOKEN_STORE` el refresco es automático.
 
 ## Despliegue por HTTP + Tailscale (opcional, avanzado)
 

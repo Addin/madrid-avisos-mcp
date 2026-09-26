@@ -13,6 +13,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "prepublishOnly": "npm run build",
     "start": "node dist/server.js",
     "start:http": "node dist/http.js",
     "dev": "tsc --watch",
