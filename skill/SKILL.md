@@ -36,6 +36,17 @@ debe verla cuando ya esté reducida (`preview_image_base64` del paso 1).
 | stdio (local) | Pasa `image_path` con la ruta local: el servidor la lee y reduce sin que la abras. |
 | Foto pequeña ya visible en el chat | `image_base64` solo entonces. |
 
+### Vía Telegram (gateway Hermes)
+
+1. Envía la foto **como archivo/documento** (sin comprimir). Como "foto" Telegram la
+   recomprime y **pierde el GPS EXIF**: sin ubicación no hay aviso automático.
+2. La foto queda en la caché del Hermes (`~/.hermes/image_cache/`); súbela al MCP con
+   curl desde tu terminal (los bytes no entran en tu contexto):
+   `curl -X PUT --data-binary @<foto> -H "Authorization: Bearer <secreto>" '<base>/upload?filename=foto.jpg'`
+   → `{"file_id":"…"}`. Límite 20 MB con la Bot API pública (local Bot API server lo
+   sube a 2 GB).
+3. Usa ese `file_id` en `create_aviso_from_photo` y `attach_photo`.
+
 Si la foto no trae GPS EXIF, NO adivines: pide ubicación al humano (o `lat`/`lng`).
 Solo JPEG trae EXIF legible.
 
