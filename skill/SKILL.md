@@ -49,8 +49,10 @@ Llama `mcp__madrid_avisos__create_aviso_from_photo` con:
 - `image_base64`: la foto en base64 (data URL o puro). NUNCA pases rutas locales tuyas
   (`image_path` solo existe en el servidor).
 - `category_hint`: lo que ves en la foto ("cartones apilados en acera", "farola apagada"…).
-- `description`: texto del problema que se publicará. Si la omites, se pre-rellena y se
-  marca `description_drafted:true` (el humano debe revisarlo).
+- `description`: descripción GENERAL de lo que sucede ("cartones apilados en la acera",
+  "farola apagada"), sin entrar en detalles (medidas, marcas, minucias). Es el texto que se
+  publicará. Si la omites, se pre-rellena y se marca `description_drafted:true` (el humano
+  debe revisarlo).
 - Opcional: `service_id` si ya sabes la categoría, `lat`/`lng` si la foto no trae GPS,
   `address_string` ("Calle Laurel, 2").
 
