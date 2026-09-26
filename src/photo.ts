@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import exifParser from "exif-parser";
+import jpeg from "jpeg-js";
 
 export interface PhotoGps {
   lat: number;
@@ -30,9 +31,14 @@ export interface PhotoInfo {
   exif_warning?: string;
 }
 
-/** Carga la foto desde base64 (data URL o base64 puro) o desde ruta local. Exige exactamente una vía. */
-export async function loadPhotoBuffer(image_base64?: string, image_path?: string): Promise<Buffer> {
-  if (image_base64 && image_path) throw new Error("Pasa image_base64 O image_path, no ambos.");
+/** Carga la foto desde base64, ruta local o file_id (subida previa vía PUT /upload). */
+export async function loadPhotoBuffer(
+  image_base64?: string,
+  image_path?: string,
+  file_id?: string,
+): Promise<Buffer> {
+  const given = [image_base64, image_path, file_id].filter(Boolean).length;
+  if (given > 1) throw new Error("Pasa solo una vía: image_base64, image_path o file_id.");
   if (image_base64) {
     const clean = image_base64.replace(/^data:image\/[\w+.-]+;base64,/, "").trim();
     const buf = Buffer.from(clean, "base64");
@@ -40,7 +46,8 @@ export async function loadPhotoBuffer(image_base64?: string, image_path?: string
     return buf;
   }
   if (image_path) return readFile(image_path);
-  throw new Error("Falta la foto: pasa image_base64 (remoto) o image_path (local).");
+  if (file_id) return readFile(resolveUpload(file_id));
+  throw new Error("Falta la foto: pasa image_base64, image_path (local) o file_id (PUT /upload).");
 }
 
 function isJpeg(buf: Buffer): boolean {
@@ -136,4 +143,141 @@ export function stableStringify(v: unknown): string {
 /** Token que liga una confirmación con el preview exacto que vio el humano. */
 export function previewToken(payload: unknown): string {
   return createHash("sha256").update(stableStringify(payload)).digest("hex");
+}
+
+// ---------------------------------------------------------------------------
+// Registro de subidas (PUT /upload): file_id -> ruta. En memoria; se invalida
+// al reiniciar el servidor.
+// ---------------------------------------------------------------------------
+const uploadRegistry = new Map<string, string>();
+
+export function registerUpload(absPath: string): string {
+  const id = randomUUID();
+  uploadRegistry.set(id, absPath);
+  return id;
+}
+
+export function resolveUpload(fileId: string): string {
+  if (!/^[0-9a-f-]{36}$/.test(fileId)) throw new Error("file_id inválido.");
+  const p = uploadRegistry.get(fileId);
+  if (!p)
+    throw new Error(
+      "file_id desconocido o caducado: el servidor HTTP se reinició (repite PUT /upload) o estás en stdio (usa image_path con la ruta local).",
+    );
+  return p;
+}
+
+// ---------------------------------------------------------------------------
+// Reducción en TS (sin Pillow): el servidor reduce, el modelo solo ve la copia.
+// ---------------------------------------------------------------------------
+export interface Downscaled {
+  buffer: Buffer;
+  width: number;
+  height: number;
+  resized: boolean;
+}
+
+/** Dimensiones JPEG leyendo cabeceras SOF (sin decodificar). null si no es JPEG. */
+function probeJpegDims(buf: Buffer): { width: number; height: number } | null {
+  try {
+    const tags = exifParser.create(buf).parse();
+    if (tags.imageSize) return { width: tags.imageSize.width, height: tags.imageSize.height };
+  } catch {
+    /* no EXIF legible: se intentará decodificar igualmente */
+  }
+  return null;
+}
+
+/**
+ * Copia los segmentos APP1 (EXIF, incluye GPS) del original al re-codificado.
+ * Las dimensiones EXIF quedan obsoletas tras reducir; el GPS no se toca.
+ */
+function spliceExif(original: Buffer, resized: Buffer): Buffer {
+  if (resized[0] !== 0xff || resized[1] !== 0xd8) return resized;
+  const app1s: Buffer[] = [];
+  let pos = 2;
+  while (pos + 4 <= original.length) {
+    if (original[pos] !== 0xff) break;
+    const marker = original[pos + 1];
+    if (marker === 0xd8 || marker === 0xd9 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+      pos += 2;
+      continue;
+    }
+    const len = original.readUInt16BE(pos + 2);
+    if (len < 2 || pos + 2 + len > original.length) break;
+    if (marker === 0xe1) app1s.push(original.subarray(pos, pos + 2 + len));
+    if (marker === 0xda) break; // SOS: empiezan los datos
+    pos += 2 + len;
+  }
+  if (!app1s.length) return resized;
+  return Buffer.concat([resized.subarray(0, 2), ...app1s, resized.subarray(2)]);
+}
+
+/**
+ * Reduce la foto a lado mayor maxSide (media por cajas). Solo JPEG; el resto
+ * se devuelve tal cual. El GPS se conserva copiando el APP1 original.
+ */
+export function downscaleForVision(buf: Buffer, maxSide = 2048, quality = 80): Downscaled {
+  const dims = isJpeg(buf) ? probeJpegDims(buf) : null;
+  if (!isJpeg(buf) || !dims) {
+    // No JPEG o sin dimensiones legibles: se intenta decodificar; si falla, tal cual.
+    try {
+      const raw = jpeg.decode(buf, { maxMemoryUsageInMB: 1024 });
+      if (Math.max(raw.width, raw.height) <= maxSide) {
+        return { buffer: buf, width: raw.width, height: raw.height, resized: false };
+      }
+      return downscaleRaw(raw, maxSide, quality, buf);
+    } catch {
+      return { buffer: buf, width: 0, height: 0, resized: false };
+    }
+  }
+  if (Math.max(dims.width, dims.height) <= maxSide) {
+    return { buffer: buf, width: dims.width, height: dims.height, resized: false };
+  }
+  const raw = jpeg.decode(buf, { maxMemoryUsageInMB: 1024 });
+  return downscaleRaw(raw, maxSide, quality, buf);
+}
+
+function downscaleRaw(
+  raw: { data: Buffer; width: number; height: number },
+  maxSide: number,
+  quality: number,
+  original: Buffer,
+): Downscaled {
+  const scale = maxSide / Math.max(raw.width, raw.height);
+  const W = Math.max(1, Math.round(raw.width * scale));
+  const H = Math.max(1, Math.round(raw.height * scale));
+  const sx = raw.width / W;
+  const sy = raw.height / H;
+  const out = Buffer.alloc(W * H * 4);
+  for (let y = 0; y < H; y++) {
+    const y0 = Math.floor(y * sy);
+    const y1 = Math.min(Math.ceil((y + 1) * sy), raw.height);
+    for (let x = 0; x < W; x++) {
+      const x0 = Math.floor(x * sx);
+      const x1 = Math.min(Math.ceil((x + 1) * sx), raw.width);
+      let r = 0,
+        g = 0,
+        b = 0,
+        a = 0,
+        n = 0;
+      for (let yy = y0; yy < y1; yy++) {
+        for (let xx = x0; xx < x1; xx++) {
+          const i = (yy * raw.width + xx) * 4;
+          r += raw.data[i];
+          g += raw.data[i + 1];
+          b += raw.data[i + 2];
+          a += raw.data[i + 3];
+          n++;
+        }
+      }
+      const o = (y * W + x) * 4;
+      out[o] = Math.round(r / n);
+      out[o + 1] = Math.round(g / n);
+      out[o + 2] = Math.round(b / n);
+      out[o + 3] = Math.round(a / n);
+    }
+  }
+  const enc = jpeg.encode({ data: out, width: W, height: H }, quality);
+  return { buffer: spliceExif(original, enc.data), width: W, height: H, resized: true };
 }

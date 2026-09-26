@@ -12,9 +12,7 @@
  *   from-photo <image_path> [service_id] [descripción]   (preview; con --send --token <tok> --yes envía tras revisión humana)
  *   prep-photo <in.jpg> [out.jpg] [--max 2048] [--quality 82]  (reduce para el modelo, conserva EXIF/GPS)
  */
-import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { readFile, writeFile, stat } from "node:fs/promises";
 import { AvisosClient } from "./client.js";
 import {
   createAviso,
@@ -28,23 +26,59 @@ import {
   refreshSession,
 } from "./avisos.js";
 
+import { downscaleForVision, parsePhoto } from "./photo.js";
+
 const client = new AvisosClient();
 
 function out(data: unknown) {
   console.log(JSON.stringify(data, null, 2));
 }
 
-/** Delega en scripts/prep-photo.py (requiere python3 + Pillow en el PATH). */
-function prepPhoto(passthru: string[]): never {
-  const script = join(dirname(fileURLToPath(import.meta.url)), "..", "scripts", "prep-photo.py");
-  const r = spawnSync("python3", [script, ...passthru], { stdio: "inherit" });
-  if (r.error) {
-    console.error(
-      `No se pudo lanzar python3 (${r.error.message}). Alternativa: python3 scripts/prep-photo.py <in.jpg> [out.jpg] (pip install pillow).`,
-    );
+function numOpt(args: string[], name: string, def: number): number {
+  const i = args.indexOf(name);
+  if (i < 0) {
+    const eq = args.find((a) => a.startsWith(name + "="));
+    if (!eq) return def;
+    const v = Number(eq.slice(name.length + 1));
+    return Number.isFinite(v) ? v : def;
+  }
+  const v = Number(args[i + 1]);
+  return Number.isFinite(v) ? v : def;
+}
+
+/** Reduce una foto en TS (sin Pillow): conserva EXIF/GPS e informa por JSON. */
+async function prepPhoto(passthru: string[]): Promise<void> {
+  const positional = passthru.filter((a, i) => {
+    if (a.startsWith("--")) return false;
+    const prev = passthru[i - 1];
+    if (prev === "--max" || prev === "--quality") return false;
+    return true;
+  });
+  const [input, output] = positional;
+  if (!input) {
+    console.error("Uso: prep-photo <in.jpg> [out.jpg] [--max 2048] [--quality 82]");
     process.exit(1);
   }
-  process.exit(r.status ?? 1);
+  const max = numOpt(passthru, "--max", 2048);
+  const quality = numOpt(passthru, "--quality", 80);
+  const buf = await readFile(input);
+  const before = parsePhoto(buf);
+  const small = downscaleForVision(buf, max, quality);
+  const dst = output ?? input.replace(/(\.[a-zA-Z0-9]+)?$/, "-ligera$1");
+  if (small.resized || dst !== input) await writeFile(dst, small.buffer);
+  const info = parsePhoto(small.buffer);
+  const stIn = await stat(input);
+  const stOut = await stat(dst);
+  out({
+    ok: true,
+    input,
+    output: dst,
+    orig: { width: before.width, height: before.height, bytes: stIn.size },
+    out: { width: small.width || info.width, height: small.height || info.height, bytes: stOut.size },
+    resized: small.resized,
+    gps: before.gps,
+    gps_preserved: JSON.stringify(before.gps) === JSON.stringify(info.gps),
+  });
 }
 
 async function main() {

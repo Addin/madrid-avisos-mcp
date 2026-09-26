@@ -54,8 +54,9 @@ export type CreateAvisoInput = z.infer<typeof CreateAvisoInput>;
 
 /** Entrada de la herramienta create_aviso_from_photo (dos fases con confirmación humana). */
 export const CreateAvisoFromPhotoInput = z.object({
-  image_base64: z.string().optional().describe("foto como base64 (puro o data URL). Vía para el Hermes remoto"),
+  image_base64: z.string().optional().describe("foto como base64 (puro o data URL). Solo para fotos pequeñas ya visibles"),
   image_path: z.string().optional().describe("ruta local a la foto. Solo stdio/CLI en la máquina del servidor"),
+  file_id: z.string().optional().describe("VÍA PREFERIDA en remoto: id de PUT /upload (el modelo no procesa los bytes originales)"),
   service_id: z.string().optional().describe("id de la categoría. Si falta, devuelve sugerencias y no crea nada"),
   category_hint: z
     .string()

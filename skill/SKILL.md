@@ -25,30 +25,34 @@ config): no sirve para crear el aviso.
 
 ## Procedure
 
-### 0. Prepara la foto
+### 0. Recibe la foto sin procesarla
+
+NO abras la imagen original con visión ni la pases como base64 gigante: el modelo solo
+debe verla cuando ya esté reducida (`preview_image_base64` del paso 1).
 
 | Caso | Acción |
 |---|---|
-| ≤20 MP y ≤8 MB | Usar tal cual. |
-| >20 MP o >8 MB, o el proveedor devuelve `image decode limit exceeded` | Reducir con `prep-photo` y usar la copia. |
-| Sin GPS EXIF | NO adivinar: pide ubicación al humano (o `lat`/`lng` si te la da). |
-| No JPEG (PNG/HEIC) | Convertir a JPEG con `prep-photo`; el GPS automático solo funciona en JPEG. |
+| Servidor HTTP (remoto) | Súbela con curl desde tu terminal (los bytes no entran en tu contexto) y usa el `file_id`: `curl -X PUT --data-binary @foto.jpg -H "Authorization: Bearer <secreto>" '<base>/upload?filename=foto.jpg'` → `{"file_id":"…"}`. |
+| stdio (local) | Pasa `image_path` con la ruta local: el servidor la lee y reduce sin que la abras. |
+| Foto pequeña ya visible en el chat | `image_base64` solo entonces. |
 
-`prep-photo` es determinista, conserva EXIF/GPS, no exige dependencias e informa por
-JSON. En la máquina del servidor: `node dist/cli.js prep-photo in.jpg [out.jpg]
-[--max 2048] [--quality 82]`. En cualquier máquina: `python3 scripts/prep-photo.py
-in.jpg [out.jpg]` (el script está en el repo `madrid-avisos-mcp/scripts/`).
-Si `gps` sale `null` en el informe, pide `lat`/`lng` al humano.
+Si la foto no trae GPS EXIF, NO adivines: pide ubicación al humano (o `lat`/`lng`).
+Solo JPEG trae EXIF legible.
 
-La copia reducida vale tanto para ver la foto como para `attach_photo`. Reserva la
-original para `attach_photo` solo si aporta detalle legible relevante.
+El servidor reduce a lado mayor 2048 conservando el GPS, adjunta siempre la original
+y te devuelve la copia pequeña para visión en el preview.
 
 ### 1. Preview (NUNCA envía nada)
 
+La dirección (`address_string`) y las respuestas de ubicación se auto-resuelven del
+servidor (ver `resolve_address`) salvo que las pases tú; el preview las marca con
+`address_auto_resolved: true` para que el humano las revise.
+
 Llama `mcp__madrid_avisos__create_aviso_from_photo` con:
 
-- `image_base64`: la foto en base64 (data URL o puro). NUNCA pases rutas locales tuyas
-  (`image_path` solo existe en el servidor).
+- `file_id`: VÍA PREFERIDA (del paso 0). Alternativas: `image_path` (stdio local) o
+  `image_base64` (solo fotos pequeñas ya visibles). NUNCA pases rutas locales tuyas
+  a un servidor remoto ni base64 de fotos grandes.
 - `category_hint`: lo que ves en la foto ("cartones apilados en acera", "farola apagada"…).
 - `description`: descripción GENERAL de lo que sucede, sin entrar en detalles (medidas,
   marcas, minucias). Es el texto que se publicará. Si la omites, se pre-rellena y se

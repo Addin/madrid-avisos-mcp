@@ -14,10 +14,14 @@
  */
 import express, { type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { AvisosClient } from "./client.js";
 import { buildServer } from "./mcp.js";
+import { registerUpload } from "./photo.js";
 
 const PORT = Number(process.env.MADRID_AVISOS_HTTP_PORT ?? 3000);
 const HOST = process.env.MADRID_AVISOS_HTTP_HOST ?? "127.0.0.1";
@@ -48,6 +52,27 @@ app.use((req: Request, res: Response, next) => {
     }
   }
   next();
+});
+
+// Subida de fotos fuera del protocolo MCP: el agente la sube con curl (los bytes no
+// pasan por el contexto del modelo) y luego usa el file_id en las tools.
+// Requiere el mismo secreto que /mcp.
+app.put("/upload", express.raw({ type: "*/*", limit: "64mb" }), async (req: Request, res: Response) => {
+  try {
+    const buf = req.body as Buffer;
+    if (!buf?.length) {
+      res.status(400).json({ error: "cuerpo vacío: manda la foto con --data-binary @foto.jpg" });
+      return;
+    }
+    const filename = String(req.query.filename ?? "upload.jpg").replace(/[^a-zA-Z0-9._-]/g, "_");
+    const dir = join(tmpdir(), "madrid-avisos-uploads");
+    await mkdir(dir, { recursive: true });
+    const path = join(dir, `${randomUUID()}-${filename}`);
+    await writeFile(path, buf);
+    res.json({ file_id: registerUpload(path), bytes: buf.length });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
 });
 
 // Una sesión = un transporte + un servidor MCP.

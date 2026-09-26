@@ -16,6 +16,7 @@ import {
   listCategories,
   listMyAvisos,
   refreshSession,
+  resolveAddress,
   resolveLocation,
 } from "./avisos.js";
 import { CreateAvisoFromPhotoInput, CreateAvisoInput } from "./types.js";
@@ -73,10 +74,17 @@ export function buildServer(client: AvisosClient = new AvisosClient()): McpServe
 
   server.tool(
     "resolve_location",
-    "Para una categoría y unas coordenadas: valida que la posición cae en zona del servicio, obtiene la dirección + preguntas dinámicas de ubicación (p.ej. tipo_via) y comprueba posibles duplicados cercanos.",
+    "Para una categoría y unas coordenadas: valida que la posición cae en zona del servicio (validate-position), obtiene la dirección municipal + preguntas de ubicación (location-additional-data) y comprueba duplicados cercanos. Sin jurisdiction_element_id usa la ciudad de Madrid.",
     { service_id: z.string(), lat: z.number(), lng: z.number(), jurisdiction_element_id: z.string().optional() },
     ({ service_id, lat, lng, jurisdiction_element_id }) =>
       run(() => resolveLocation(client, service_id, lat, lng, jurisdiction_element_id)),
+  );
+
+  server.tool(
+    "resolve_address",
+    "Geocodificación inversa propia: coords -> dirección municipal (formatted_address) + respuestas pre-rellenadas de ubicación (tipo_via, barrio, distrito…). Sin jurisdiction_element_id usa la ciudad de Madrid.",
+    { lat: z.number(), lng: z.number(), jurisdiction_element_id: z.string().optional() },
+    ({ lat, lng, jurisdiction_element_id }) => run(() => resolveAddress(client, lat, lng, jurisdiction_element_id)),
   );
 
   server.tool(
@@ -87,18 +95,18 @@ export function buildServer(client: AvisosClient = new AvisosClient()): McpServe
   );
 
   server.tool(
-    "attach_photo",
-    "Adjunta una foto a un aviso ya creado, usando su request_token. La foto puede ir como image_base64 (Hermes remoto) o image_path local al servidor. Dry-run por defecto; confirm=true para subirla de verdad.",
-    { request_token: z.string(), image_path: z.string().optional().describe("ruta local al servidor"), image_base64: z.string().optional().describe("foto en base64 (data URL o puro)"), confirm: z.boolean().optional(), jurisdiction_id: z.string().optional().describe("por defecto es.madrid") },
-    ({ request_token, image_path, image_base64, confirm, jurisdiction_id }) =>
-      run(() => attachPhoto(client, request_token, { image_path, image_base64 }, confirm ?? false, jurisdiction_id)),
+    "create_aviso_from_photo",
+    "Crea un aviso a partir de una FOTO en dos fases. VÍA PREFERIDA: sube la foto con PUT /upload (curl, sin que el modelo la procese) y pasa file_id; el servidor la reduce y devuelve preview_image_base64 para visión. Por stdio usa image_path local. Fase 1 (confirm=false): preview + preview_token SIN enviar. Fase 2: MISMOS campos + confirm:true + human_confirmed:true + preview_token (tras 'sí' humano). Sin las tres NO se envía.",
+    CreateAvisoFromPhotoInput.shape,
+    (input) => run(() => createAvisoFromPhoto(client, input as CreateAvisoFromPhotoInput)),
   );
 
   server.tool(
-    "create_aviso_from_photo",
-    "Crea un aviso a partir de una FOTO en dos fases. Fase 1 (confirm=false o ausente): extrae el GPS EXIF, sugiere categoría si falta service_id, resuelve ubicación y devuelve preview + preview_token SIN enviar nada. Fase 2: el agente DEBE mostrar el preview al humano y esperar su 'sí'; solo entonces repite la llamada con los MISMOS campos + confirm:true + human_confirmed:true + preview_token. Sin esas tres cosas NO se envía. La foto queda guardada (saved_image_path) para attach_photo.",
-    CreateAvisoFromPhotoInput.shape,
-    (input) => run(() => createAvisoFromPhoto(client, input as CreateAvisoFromPhotoInput)),
+    "attach_photo",
+    "Adjunta una foto a un aviso ya creado, usando su request_token. Foto por file_id (PUT /upload), image_path local o image_base64. Dry-run por defecto; confirm=true para subirla.",
+    { request_token: z.string(), image_path: z.string().optional().describe("ruta local al servidor"), image_base64: z.string().optional().describe("foto en base64 (data URL o puro)"), file_id: z.string().optional().describe("id de PUT /upload"), confirm: z.boolean().optional(), jurisdiction_id: z.string().optional().describe("por defecto es.madrid") },
+    ({ request_token, image_path, image_base64, file_id, confirm, jurisdiction_id }) =>
+      run(() => attachPhoto(client, request_token, { image_path, image_base64, file_id }, confirm ?? false, jurisdiction_id)),
   );
 
   server.tool("get_aviso", "Detalle de un aviso por su id.", { id: z.string() }, ({ id }) => run(() => getAviso(client, id)));

@@ -24,6 +24,13 @@ export const APP_VERSION = process.env.MADRID_AVISOS_APP_VERSION ?? "03.01.089";
 /** Jurisdicción por defecto (Madrid). Requiere usuario registrado (only_registered_users=true). */
 export const DEFAULT_JURISDICTION = process.env.MADRID_AVISOS_JURISDICTION ?? "es.madrid";
 
+/**
+ * Elemento de jurisdicción por defecto: la ciudad de Madrid (is_main=true).
+ * Necesario para validate-position y location-additional-data (dirección).
+ */
+export const DEFAULT_JURISDICTION_ELEMENT =
+  process.env.MADRID_AVISOS_JURISDICTION_ELEMENT ?? "5e5a3f17179796a7cbb93934";
+
 export const DEFAULT_LANGUAGE = process.env.MADRID_AVISOS_LANGUAGE ?? "es";
 
 /**

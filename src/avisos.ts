@@ -3,9 +3,9 @@
  * Reutilizadas tanto por el servidor MCP como por el CLI.
  */
 import { AvisosClient } from "./client.js";
-import { APP_KEY, CLIENT_ID, DEFAULT_JURISDICTION, DEVICE_ID } from "./config.js";
+import { APP_KEY, CLIENT_ID, DEFAULT_JURISDICTION, DEFAULT_JURISDICTION_ELEMENT, DEVICE_ID } from "./config.js";
 import type { CreateAvisoFromPhotoInput, CreateAvisoInput, CreateAvisoPayload } from "./types.js";
-import { loadPhotoBuffer, parsePhoto, previewToken, saveUpload, type PhotoInfo } from "./photo.js";
+import { loadPhotoBuffer, parsePhoto, previewToken, saveUpload, downscaleForVision, resolveUpload, type PhotoInfo } from "./photo.js";
 
 /** Login anónimo → devuelve access_token (30 días) y refresh_token. */
 export async function loginAnonymous(client: AvisosClient): Promise<{ access_token: string; refresh_token: string; expires_in: number }> {
@@ -74,16 +74,60 @@ export interface ResolvedLocation {
   duplicates: unknown;
 }
 
+export interface ResolvedAddress {
+  /** Dirección municipal ("Calle Laurel, 1"). */
+  formatted_address: string;
+  /** Respuestas pre-rellenadas por el servidor (id de pregunta + valor). */
+  answers: Array<{ question: string; value: string }>;
+  raw: unknown;
+}
+
+/**
+ * Geocodificación inversa propia: coords -> dirección municipal + respuestas
+ * pre-rellenadas de ubicación. Usa el elemento de Madrid por defecto.
+ */
+export async function resolveAddress(
+  client: AvisosClient,
+  lat: number,
+  lng: number,
+  jurisdictionElementId = DEFAULT_JURISDICTION_ELEMENT,
+): Promise<ResolvedAddress> {
+  const res = (await client.get("location-additional-data", {
+    jurisdiction_element_id: jurisdictionElementId,
+    lat,
+    lng,
+  })) as unknown;
+  const parsed = parseAddressResponse(res);
+  if (!parsed) throw new Error("El servidor no devolvió dirección para esas coordenadas.");
+  return parsed;
+}
+
+/** Extrae dirección + respuestas de un location-additional-data (ya descargado o fresco). */
+export function parseAddressResponse(res: unknown): ResolvedAddress | null {
+  const first = (res as Array<{
+    formatted_address?: string;
+    data?: Array<{ question?: { id?: string }; value?: unknown }>;
+  }> | null)?.[0];
+  if (!first?.formatted_address) return null;
+  const answers: ResolvedAddress["answers"] = [];
+  for (const a of first.data ?? []) {
+    if (!a?.question?.id || a.value === null || a.value === undefined || a.value === "") continue;
+    answers.push({ question: a.question.id, value: String(a.value) });
+  }
+  return { formatted_address: first.formatted_address, answers, raw: first };
+}
+
 /**
  * Resuelve una ubicación para un servicio: valida la posición (zonas del servicio),
  * obtiene la dirección + preguntas dinámicas de ubicación y comprueba duplicados.
+ * Sin jurisdiction_element_id usa el de la ciudad de Madrid.
  */
 export async function resolveLocation(
   client: AvisosClient,
   serviceId: string,
   lat: number,
   lng: number,
-  jurisdictionElementId?: string,
+  jurisdictionElementId: string = DEFAULT_JURISDICTION_ELEMENT,
 ): Promise<ResolvedLocation> {
   const [validate_position, location_additional_data, duplicates] = await Promise.all([
     client
@@ -162,19 +206,20 @@ export async function createAviso(client: AvisosClient, input: CreateAvisoInput)
 export async function attachPhoto(
   client: AvisosClient,
   requestToken: string,
-  image: { image_path?: string; image_base64?: string } | string,
+  image: { image_path?: string; image_base64?: string; file_id?: string } | string,
   confirm = false,
   jurisdictionId = DEFAULT_JURISDICTION,
 ): Promise<{ dry_run: boolean; endpoint: string; saved_image_path: string; response?: unknown }> {
   const endpoint = "requests_medias";
   const input = typeof image === "string" ? { image_path: image } : image;
   // Valida la foto siempre (sin red): falla limpio si falta o el base64 es inválido.
-  const buf = await loadPhotoBuffer(input.image_base64, input.image_path);
+  const buf = await loadPhotoBuffer(input.image_base64, input.image_path, input.file_id);
   if (!confirm) {
-    return { dry_run: true, endpoint, saved_image_path: input.image_path ?? "(base64: se guarda en tmp al confirmar)" };
+    return { dry_run: true, endpoint, saved_image_path: input.image_path ?? "(se guarda en tmp al confirmar)" };
   }
-  // La foto puede venir como base64 (Hermes remoto): se guarda en tmp y se sube desde ahí.
-  const saved_image_path = input.image_path ?? (await saveUpload(buf));
+  // file_id/image_path ya están en el servidor; base64 se guarda en tmp.
+  const saved_image_path =
+    input.image_path ?? (input.file_id ? resolveUpload(input.file_id) : await saveUpload(buf));
   const response = await client.postMultipart(
     endpoint,
     { token: requestToken, type: "image/jpeg" },
@@ -262,6 +307,12 @@ export type FromPhotoResult =
       resolved_location: ResolvedLocation;
       payload: CreateAvisoPayload;
       description_drafted: boolean;
+      /** true si address_string/location vienen auto-resueltos (revisar en el preview). */
+      address_auto_resolved: boolean;
+      /** true si la foto se redujo en el servidor (el modelo solo debe ver esta copia). */
+      image_resized: boolean;
+      /** Copia reducida (data URL JPEG) para visión del modelo. La original se usa al adjuntar. */
+      preview_image_base64: string;
       how_to_confirm: string;
     }
   | {
@@ -284,9 +335,15 @@ export async function createAvisoFromPhoto(
   client: AvisosClient,
   input: CreateAvisoFromPhotoInput,
 ): Promise<FromPhotoResult> {
-  const buf = await loadPhotoBuffer(input.image_base64, input.image_path);
-  const photo = parsePhoto(buf);
-  const saved_image_path = await saveUpload(buf);
+  // PRIMERA TAREA: cargar y reducir en el servidor. El modelo no procesa los
+  // bytes originales: para visión usa solo preview_image_base64.
+  const buf = await loadPhotoBuffer(input.image_base64, input.image_path, input.file_id);
+  const small = downscaleForVision(buf);
+  const photo = parsePhoto(small.resized ? small.buffer : buf);
+  // Siempre la ORIGINAL: la ya guardada (file_id/image_path) o copia a tmp (base64).
+  const saved_image_path =
+    input.image_path ?? (input.file_id ? resolveUpload(input.file_id) : await saveUpload(buf));
+  const preview_image_base64 = `data:image/jpeg;base64,${small.buffer.toString("base64")}`;
 
   const lat = input.lat ?? photo.gps?.lat;
   const lng = input.lng ?? photo.gps?.lng;
@@ -329,6 +386,12 @@ export async function createAvisoFromPhoto(
     description = `Incidencia reportada con foto${when}.${what} Revisar descripción antes de enviar.`.trim();
   }
 
+  // Dirección + respuestas de ubicación auto-resueltas (el humano las ve en el preview).
+  const autoAddress = parseAddressResponse(resolved_location.location_additional_data);
+  const address_string = input.address_string ?? autoAddress?.formatted_address;
+  const location_additional_data = input.location_additional_data ?? autoAddress?.answers;
+  const address_auto_resolved = !input.address_string && !!autoAddress;
+
   const payload = buildCreatePayload({
     service_id: input.service_id,
     jurisdiction_id: jurisdiction,
@@ -336,13 +399,13 @@ export async function createAvisoFromPhoto(
     lng,
     description,
     public: input.public,
-    address_string: input.address_string,
+    address_string,
     level: input.level,
     priority: input.priority,
     jurisdiction_element: input.jurisdiction_element,
     situation: input.situation,
     zones: input.zones,
-    location_additional_data: input.location_additional_data,
+    location_additional_data,
     additional_data: input.additional_data,
     informant: input.informant,
     device_type: input.device_type,
@@ -361,6 +424,9 @@ export async function createAvisoFromPhoto(
       resolved_location,
       payload,
       description_drafted,
+      address_auto_resolved,
+      image_resized: small.resized,
+      preview_image_base64,
       how_to_confirm:
         "MUESTRA este preview al humano y espera su 'sí'. Solo entonces repite la llamada con los MISMOS campos + confirm:true + human_confirmed:true + este preview_token. Si cambias cualquier campo, pide un preview nuevo.",
     };
@@ -384,13 +450,13 @@ export async function createAvisoFromPhoto(
     lng,
     description,
     public: input.public,
-    address_string: input.address_string,
+    address_string,
     level: input.level,
     priority: input.priority,
     jurisdiction_element: input.jurisdiction_element,
     situation: input.situation,
     zones: input.zones,
-    location_additional_data: input.location_additional_data,
+    location_additional_data,
     additional_data: input.additional_data,
     informant: input.informant,
     device_type: input.device_type,

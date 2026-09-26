@@ -48,16 +48,22 @@ Todo corre en tu máquina y el token no sale de ella: cada aviso se crea como tu
 
 ## Fotos demasiado grandes para el modelo
 
-Algunos modelos rechazan fotos muy grandes (`image decode limit exceeded`). Hay un script
-que las reduce conservando el EXIF/GPS, sin dependencias obligatorias (usa `sips` en macOS,
-ImageMagick o Pillow, por ese orden):
+Algunos modelos rechazan fotos muy grandes (`image decode limit exceeded`). El servidor
+reduce en TypeScript (sin dependencias) conservando el GPS, así que el modelo nunca
+necesita procesar la original:
 
-```bash
-node dist/cli.js prep-photo foto.jpg [foto-ligera.jpg]   # lado mayor 2048, informa por JSON
-# o directo: python3 scripts/prep-photo.py foto.jpg [foto-ligera.jpg] [--max 2048] [--quality 82]
-```
-
-La copia ligera vale tanto para que el agente vea la foto como para adjuntarla al aviso.
+* **Remoto (HTTP)**: sube la foto con curl y usa el `file_id` (los bytes no pasan por el
+  modelo). Requiere el secreto del servidor:
+  ```bash
+  curl -X PUT --data-binary @foto.jpg \
+    -H "Authorization: Bearer <secreto>" \
+    'http://127.0.0.1:3000/upload?filename=foto.jpg'
+  # → {"file_id":"…","bytes":…}
+  ```
+  El preview devuelve `preview_image_base64` (copia reducida) para visión y adjunta
+  siempre la original.
+* **Local (stdio/CLI)**: pasa `image_path`; el servidor lee y reduce sin que el modelo
+  abra el fichero. O reduce tú con `node dist/cli.js prep-photo foto.jpg [foto-ligera.jpg]`.
 
 ## ¿Eres un agente IA? Lee esto primero
 
@@ -80,7 +86,7 @@ Instálalo así (requiere Node 18+):
    --command npx … --args -y madrid-avisos-mcp`) u OpenClaw (`openclaw mcp add …
    --command npx --arg -y --arg madrid-avisos-mcp`). El token viaja en la variable
    `MADRID_AVISOS_TOKEN` de tu config.
-3. **Verifica** (`mcp list` / `test` / `doctor --probe` según cliente): debes ver 10 tools.
+3. **Verifica** (`mcp list` / `test` / `doctor --probe` según cliente): debes ver 11 tools.
 4. **Uso**: hay skill completa en [`skill/SKILL.md`](skill/SKILL.md).
    Lo esencial: solo incidencias genuinas; `create_aviso_from_photo` en 2 fases
    (preview → mostrar al humano → envío solo con su "sí" + `confirm` + `human_confirmed` +
@@ -101,7 +107,7 @@ claude mcp list   # verificar
 
 ```bash
 hermes mcp add madrid-avisos --command npx --env MADRID_AVISOS_TOKEN=<tu-token> --args -y madrid-avisos-mcp
-hermes mcp test madrid-avisos   # verificar (lista las 10 tools)
+hermes mcp test madrid-avisos   # verificar (lista las 11 tools)
 ```
 
 ### OpenClaw
@@ -131,7 +137,8 @@ npx -y -p madrid-avisos-mcp madrid-avisos-mcp-http   # HTTP en 127.0.0.1:3000/mc
 | `refresh_session` | Refresca el access token con el refresh token (también automático ante 401). |
 | `list_categories` | Categorías/servicios (id, flags de formulario). |
 | `get_category` | Detalle de una categoría (formulario, obligatorios, tipología). |
-| `resolve_location` | Valida posición + dirección/preguntas de ubicación + duplicados. |
+| `resolve_location` | Valida zona del servicio + dirección municipal + preguntas de ubicación + duplicados. |
+| `resolve_address` | Geocodificación inversa propia: coords → dirección municipal + respuestas pre-rellenadas. |
 | `create_aviso` | Crea un aviso. **Dry-run por defecto**; `confirm: true` para enviar de verdad. |
 | `create_aviso_from_photo` | Aviso desde foto en 2 fases: preview (GPS EXIF + categoría + ubicación) y envío solo con `confirm: true` + `human_confirmed: true` + `preview_token`. Acepta `image_base64` o `image_path`. |
 | `attach_photo` | Adjunta una foto al aviso (`image_base64` o `image_path`). Dry-run por defecto. |
@@ -192,9 +199,8 @@ nunca `funnel`): quien llegue a la URL actúa como tu usuario. Para persistencia
 - `src/avisos.ts` — **núcleo** de negocio (reutilizado por MCP y CLI).
 - `src/photo.ts` — foto: EXIF/GPS, subida a tmp, token de preview.
 - `src/types.ts` — esquemas zod de entrada + payload de creación.
-- `src/mcp.ts` — `buildServer()`: registra las 10 tools (compartido por stdio y HTTP).
-- `src/server.ts` — entrada stdio · `src/http.ts` — entrada HTTP · `src/cli.ts` — CLI.
-- `scripts/prep-photo.py` — reduce fotos para el modelo conservando EXIF/GPS.
+- `src/mcp.ts` — `buildServer()`: registra las 11 tools (compartido por stdio y HTTP).
+- `src/server.ts` — entrada stdio · `src/http.ts` — entrada HTTP (`/mcp` + `PUT /upload`) · `src/cli.ts` — CLI.
 
 ## Notas
 
