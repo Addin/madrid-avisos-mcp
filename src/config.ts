@@ -31,6 +31,14 @@ export const DEFAULT_JURISDICTION = process.env.MADRID_AVISOS_JURISDICTION ?? "e
 export const DEFAULT_JURISDICTION_ELEMENT =
   process.env.MADRID_AVISOS_JURISDICTION_ELEMENT ?? "5e5a3f17179796a7cbb93934";
 
+/**
+ * device_type por defecto: NO es "android", es el id del origin-device del canal
+ * android (la app lo resuelve de jurisdiction.origin_devices por options).
+ * Verificado en vivo contra GET jurisdictions.
+ */
+export const DEFAULT_DEVICE_TYPE =
+  process.env.MADRID_AVISOS_DEVICE_TYPE ?? "5922cfc84e4ea823178b4569";
+
 export const DEFAULT_LANGUAGE = process.env.MADRID_AVISOS_LANGUAGE ?? "es";
 
 /**

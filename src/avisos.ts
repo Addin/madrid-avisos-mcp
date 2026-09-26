@@ -3,7 +3,7 @@
  * Reutilizadas tanto por el servidor MCP como por el CLI.
  */
 import { AvisosClient } from "./client.js";
-import { APP_KEY, CLIENT_ID, DEFAULT_JURISDICTION, DEFAULT_JURISDICTION_ELEMENT, DEVICE_ID } from "./config.js";
+import { APP_KEY, CLIENT_ID, DEFAULT_DEVICE_TYPE, DEFAULT_JURISDICTION, DEFAULT_JURISDICTION_ELEMENT, DEVICE_ID } from "./config.js";
 import type { CreateAvisoFromPhotoInput, CreateAvisoInput, CreateAvisoPayload } from "./types.js";
 import { loadPhotoBuffer, parsePhoto, previewToken, saveUpload, downscaleForVision, resolveUpload, type PhotoInfo } from "./photo.js";
 
@@ -106,15 +106,49 @@ export async function resolveAddress(
 export function parseAddressResponse(res: unknown): ResolvedAddress | null {
   const first = (res as Array<{
     formatted_address?: string;
-    data?: Array<{ question?: { id?: string }; value?: unknown }>;
+    data?: Array<{ question?: { id?: string; type?: string }; value?: unknown }>;
   }> | null)?.[0];
   if (!first?.formatted_address) return null;
   const answers: ResolvedAddress["answers"] = [];
   for (const a of first.data ?? []) {
-    if (!a?.question?.id || a.value === null || a.value === undefined || a.value === "") continue;
+    if (!a?.question?.id) continue;
+    if (a.value === null || a.value === undefined || a.value === "") {
+      // El servidor exige presente hasta el calificador vacío: los text se mandan como "".
+      if (a.question.type !== "text") continue;
+      answers.push({ question: a.question.id, value: "" });
+      continue;
+    }
     answers.push({ question: a.question.id, value: String(a.value) });
   }
   return { formatted_address: first.formatted_address, answers, raw: first };
+}
+
+/** Caché del device id por canal (jurisdictions rara vez cambia). */
+const deviceCache = new Map<string, string>();
+
+/**
+ * Resuelve el device_type (id de origin-device) para un canal buscando en
+ * jurisdiction.origin_devices (GET jurisdictions). Prefiere coincidencia exacta
+ * de options, si no cualquiera que lo incluya.
+ */
+export async function resolveDeviceType(
+  client: AvisosClient,
+  channel = "android",
+): Promise<string> {
+  const hit = deviceCache.get(channel);
+  if (hit) return hit;
+  const res = (await client.get("jurisdictions", { app_key: APP_KEY })) as Array<{
+    origin_devices?: Array<{ id?: string; options?: string[] }>;
+  }>;
+  const devs = (Array.isArray(res) ? res : [res]).flatMap((j) => j.origin_devices ?? []);
+  const exact = devs.find(
+    (d) => d.id && d.options?.length === 1 && d.options[0] === channel,
+  );
+  const any = devs.find((d) => d.id && d.options?.includes(channel));
+  const id = exact?.id ?? any?.id;
+  if (!id) throw new Error(`Sin origin-device para el canal ${channel} en jurisdictions.`);
+  deviceCache.set(channel, id);
+  return id;
 }
 
 /**
@@ -153,7 +187,8 @@ export function buildCreatePayload(input: CreateAvisoInput): CreateAvisoPayload 
     jurisdiction_id: input.jurisdiction_id ?? DEFAULT_JURISDICTION,
     service_id: input.service_id,
     public: input.public ?? true,
-    device_type: input.device_type ?? "android",
+    // OJO: no es "android": es el id del origin-device del canal (ver resolveDeviceType).
+    device_type: input.device_type ?? DEFAULT_DEVICE_TYPE,
   };
   if (input.description) payload.description = input.description;
   if (input.priority) payload.priority = input.priority;
@@ -190,7 +225,10 @@ export interface CreateResult {
  * Solo con input.confirm === true realiza el POST real (crea un aviso real en el Ayuntamiento).
  */
 export async function createAviso(client: AvisosClient, input: CreateAvisoInput): Promise<CreateResult> {
-  const payload = buildCreatePayload(input);
+  // device_type dinámico (mejor esfuerzo): si falla, el valor por defecto de buildCreatePayload.
+  const device_type =
+    input.device_type ?? (await resolveDeviceType(client).catch(() => DEFAULT_DEVICE_TYPE));
+  const payload = buildCreatePayload({ ...input, device_type });
   const endpoint = "requests";
   if (!input.confirm) {
     return { dry_run: true, payload, endpoint };
@@ -391,6 +429,9 @@ export async function createAvisoFromPhoto(
   const address_string = input.address_string ?? autoAddress?.formatted_address;
   const location_additional_data = input.location_additional_data ?? autoAddress?.answers;
   const address_auto_resolved = !input.address_string && !!autoAddress;
+  // device_type dinámico (mejor esfuerzo): id del canal android, no el literal "android".
+  const device_type =
+    input.device_type ?? (await resolveDeviceType(client).catch(() => DEFAULT_DEVICE_TYPE));
 
   const payload = buildCreatePayload({
     service_id: input.service_id,
@@ -408,7 +449,7 @@ export async function createAvisoFromPhoto(
     location_additional_data,
     additional_data: input.additional_data,
     informant: input.informant,
-    device_type: input.device_type,
+    device_type,
     confirm: false,
   });
   const token = previewToken(payload);
@@ -459,7 +500,7 @@ export async function createAvisoFromPhoto(
     location_additional_data,
     additional_data: input.additional_data,
     informant: input.informant,
-    device_type: input.device_type,
+    device_type,
     confirm: true,
   });
   return {

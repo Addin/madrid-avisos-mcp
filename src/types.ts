@@ -44,7 +44,7 @@ export const CreateAvisoInput = z.object({
   location_additional_data: z.array(AdditionalAnswer).optional().describe("respuestas a preguntas de ubicación (tipo_via, etc.)"),
   additional_data: z.array(AdditionalAnswer).optional().describe("respuestas al formulario del servicio"),
   informant: Informant.optional(),
-  device_type: z.string().optional().describe("por defecto 'android'"),
+  device_type: z.string().optional().describe("id del origin-device del canal (se resuelve solo al canal android; no pasar 'android')"),
   confirm: z
     .boolean()
     .optional()

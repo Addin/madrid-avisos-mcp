@@ -107,6 +107,8 @@ dirección y si la foto quedó adjunta (`media_url`).
 - Pasar `image_path` con una ruta de tu máquina: el servidor no la ve. Siempre `image_base64`.
 - Enviar `additional_data` con el **código** de pregunta en vez del **id**: el servidor lo
   rechaza. El id sale de `get_category`.
+- Pasar `device_type: "android"`: NO es un literal, es el id del origin-device del canal.
+  No lo pases nunca; el servidor lo resuelve solo.
 - Cambiar cualquier campo entre preview y envío: el `preview_token` deja de coincidir y
   hay que repetir el preview.
 - `get_aviso` NO acepta el `service_request_id` visible; necesita el id interno.
