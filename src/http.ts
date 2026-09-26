@@ -22,6 +22,11 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { AvisosClient } from "./client.js";
 import { buildServer } from "./mcp.js";
 import { registerUpload } from "./photo.js";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const PKG_VERSION: string = (require("../package.json") as { version?: string }).version ?? "0.0.0";
 
 const PORT = Number(process.env.MADRID_AVISOS_HTTP_PORT ?? 3000);
 const HOST = process.env.MADRID_AVISOS_HTTP_HOST ?? "127.0.0.1";
@@ -37,7 +42,9 @@ const app = express();
 app.use(express.json({ limit: "32mb" })); // base64 de fotos (una JPEG de 11 MB son ~15 MB en base64)
 
 // Salud, útil para comprobar el proxy de tailscale (sin secreto).
-app.get("/health", (_req, res) => res.json({ ok: true, service: "madrid-avisos-mcp" }));
+app.get("/health", (_req, res) =>
+  res.json({ ok: true, service: "madrid-avisos-mcp", version: PKG_VERSION }),
+);
 
 // Secreto compartido opcional (no aplica a /health). Se acepta en la cabecera
 // 'x-mcp-secret' o como 'Authorization: Bearer <secreto>' (algunos clientes,

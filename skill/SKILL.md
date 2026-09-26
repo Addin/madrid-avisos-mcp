@@ -30,10 +30,10 @@ config): no sirve para crear el aviso.
 NO abras la imagen original con visión ni la pases como base64 gigante: el modelo solo
 debe verla cuando ya esté reducida (`preview_image_base64` del paso 1).
 
-| Caso | Acción |
+| Dónde corre tu MCP | Acción |
 |---|---|
-| Servidor HTTP (remoto) | Súbela con curl desde tu terminal (los bytes no entran en tu contexto) y usa el `file_id`: `curl -X PUT --data-binary @foto.jpg -H "Authorization: Bearer <secreto>" '<base>/upload?filename=foto.jpg'` → `{"file_id":"…"}`. |
-| stdio (local) | Pasa `image_path` con la ruta local: el servidor la lee y reduce sin que la abras. |
+| stdio en tu misma máquina (npx local) | Pasa `image_path` con la ruta local: el servidor la lee y reduce sin que la abras. Es la mejor vía. |
+| HTTP remoto | Súbela con curl desde tu terminal (los bytes no entran en tu contexto) y usa el `file_id`: `curl -X PUT --data-binary @foto.jpg -H "Authorization: Bearer <secreto>" '<base>/upload?filename=foto.jpg'` → `{"file_id":"…"}`. |
 | Foto pequeña ya visible en el chat | `image_base64` solo entonces. |
 
 ### Vía Telegram (gateway Hermes)
@@ -61,9 +61,9 @@ servidor (ver `resolve_address`) salvo que las pases tú; el preview las marca c
 
 Llama `mcp__madrid_avisos__create_aviso_from_photo` con:
 
-- `file_id`: VÍA PREFERIDA (del paso 0). Alternativas: `image_path` (stdio local) o
-  `image_base64` (solo fotos pequeñas ya visibles). NUNCA pases rutas locales tuyas
-  a un servidor remoto ni base64 de fotos grandes.
+- `file_id` (HTTP remoto) o `image_path` (stdio local): VÍAS PREFERIDAS según dónde
+  corra tu MCP. `image_base64` solo para fotos pequeñas ya visibles. NUNCA pases rutas
+  locales tuyas a un servidor remoto ni base64 de fotos grandes.
 - `category_hint`: lo que ves en la foto ("cartones apilados en acera", "farola apagada"…).
 - `description`: descripción GENERAL de lo que sucede, sin entrar en detalles (medidas,
   marcas, minucias). Es el texto que se publicará. Si la omites, se pre-rellena y se

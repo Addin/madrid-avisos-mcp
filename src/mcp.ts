@@ -3,6 +3,7 @@
  * Compartido por la entrada stdio (server.ts) y la HTTP (http.ts).
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { createRequire } from "node:module";
 import { z } from "zod";
 import { AvisosClient, AvisosApiError } from "./client.js";
 import { DEFAULT_JURISDICTION } from "./config.js";
@@ -36,12 +37,16 @@ async function run<T>(fn: () => Promise<T>) {
   }
 }
 
+const require = createRequire(import.meta.url);
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const PKG_VERSION: string = (require("../package.json") as { version?: string }).version ?? "0.0.0";
+
 /**
  * Crea una instancia del servidor MCP con todas las tools registradas.
  * Se puede pasar un cliente propio (útil por sesión HTTP); por defecto usa el global (env).
  */
 export function buildServer(client: AvisosClient = new AvisosClient()): McpServer {
-  const server = new McpServer({ name: "madrid-avisos", version: "0.1.0" });
+  const server = new McpServer({ name: "madrid-avisos", version: PKG_VERSION });
 
   server.tool(
     "whoami",
