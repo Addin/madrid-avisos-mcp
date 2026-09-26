@@ -114,6 +114,9 @@ dirección y si la foto quedó adjunta (`media_url`).
 - Filtrar respuestas de ubicación vacías (como `calificador`): el servidor las exige
   presentes. Pasa las de `resolve_location` tal cual; además el servidor auto-rellena
   los huecos.
+- Rellenar un `calificador` (u otra respuesta) en blanco con `""` o inventar un valor:
+  el servidor lo rechaza. Las respuestas en blanco se OMITEN (como hacen la app y la
+  web); las presentes deben ser no vacías.
 - `get_aviso` NO acepta el `service_request_id` visible; necesita el id interno.
 - Perder el EXIF al redimensionar (p.ej. captura de pantalla de la foto): sin GPS no hay
   aviso automático; pide ubicación.

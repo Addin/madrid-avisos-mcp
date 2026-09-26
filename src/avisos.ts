@@ -111,13 +111,10 @@ export function parseAddressResponse(res: unknown): ResolvedAddress | null {
   if (!first?.formatted_address) return null;
   const answers: ResolvedAddress["answers"] = [];
   for (const a of first.data ?? []) {
-    if (!a?.question?.id) continue;
-    if (a.value === null || a.value === undefined || a.value === "") {
-      // El servidor exige presente hasta el calificador vacío: los text se mandan como "".
-      if (a.question.type !== "text") continue;
-      answers.push({ question: a.question.id, value: "" });
-      continue;
-    }
+    // Como la app y la web (validateValue): las respuestas en blanco se OMITEN,
+    // no se mandan vacías. Mandarlas en blanco hace fallar la validación.
+    if (!a?.question?.id || a.value === null || a.value === undefined) continue;
+    if (typeof a.value === "string" && a.value.trim() === "") continue;
     answers.push({ question: a.question.id, value: String(a.value) });
   }
   return { formatted_address: first.formatted_address, answers, raw: first };
