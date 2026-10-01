@@ -76,10 +76,12 @@ cp -r skill ~/.claude/skills/madrid-avisos        # Claude Code
 # OpenCode (mkdir -p necesario: el destino suele no existir aún)
 mkdir -p ~/.config/opencode/skills/madrid-avisos-opencode
 cp -r skill-opencode/madrid-avisos-opencode/SKILL.md ~/.config/opencode/skills/madrid-avisos-opencode/
-# o descárgala:
-#   Claude Code / Hermes / OpenClaw: .../blob/main/skill/SKILL.md
-#   OpenCode:                       .../blob/main/skill-opencode/madrid-avisos-opencode/SKILL.md
 ```
+
+O descárgala:
+
+- Claude Code / Hermes / OpenClaw: [`skill/SKILL.md`](skill/SKILL.md)
+- OpenCode: [`skill-opencode/madrid-avisos-opencode/SKILL.md`](skill-opencode/madrid-avisos-opencode/SKILL.md)
 
 > OpenCode usa otro prefijo de tools (`madrid-avisos_*`, no `mcp__madrid_avisos__`), así
 > que trae su propia variante en
